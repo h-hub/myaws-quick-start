@@ -1,0 +1,913 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Cognito Stack",
+    "Parameters": {
+        "AuthName": {
+            "Type": "String",
+            "Default" : "dev-cognito",
+            "Description": "Unique Auth Name for Cognito Resources"
+        },
+        "CallbackURL": {
+            "Type": "String",
+            "Default" : "https://example.com",
+            "Description": "CallbackURL for Login"
+        },
+        "HostedUiDomain": {
+            "Type": "String",
+            "Default" : "dev-ostedui.example.com",
+            "Description": "Hosted Ui Domain"
+        },
+        "HostedUiCertificateArn": {
+            "Type": "String",
+            "Default" : "arn:aws:acm:us-east-1:xxxxxxxxxx:certificate/xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxx",
+            "Description": "Certificate Arn"
+        }
+    },
+    "Resources": {
+        "UserPool": {
+            "Type": "AWS::Cognito::UserPool",
+            "Properties": {
+                "UserPoolName": {
+                    "Fn::Sub": "${AuthName}-user-pool"
+                },
+                "AutoVerifiedAttributes": [
+                    "email"
+                ],
+                "MfaConfiguration": "OFF",
+                "UsernameAttributes": [
+                    "email"
+                ],
+                "LambdaConfig": {
+                    "PostConfirmation": {
+                        "Fn::GetAtt": [
+                            "CreateUserInDb",
+                            "Arn"
+                        ]
+                    }
+                },
+                "Policies": {
+                    "PasswordPolicy": {
+                        "MinimumLength": 6,
+                        "RequireLowercase": false,
+                        "RequireNumbers": false,
+                        "RequireSymbols": false,
+                        "RequireUppercase": false,
+                        "TemporaryPasswordValidityDays": 1
+                    }
+                },
+                "Schema": [
+                    {
+                        "Name": "email",
+                        "AttributeDataType": "String",
+                        "Mutable": false,
+                        "Required": true
+                    },
+                    {
+                        "AttributeDataType": "String",
+                        "DeveloperOnlyAttribute": false,
+                        "Mutable": true,
+                        "Name": "category",
+                        "Required": false,
+                        "StringAttributeConstraints": {
+                            "MaxLength": 256,
+                            "MinLength": 1
+                        }
+                    },
+                    {
+                        "AttributeDataType": "String",
+                        "DeveloperOnlyAttribute": false,
+                        "Mutable": true,
+                        "Name": "cognitoIdentityId",
+                        "Required": false,
+                        "StringAttributeConstraints": {
+                            "MaxLength": 256,
+                            "MinLength": 1
+                        }
+                    }
+                ]
+            },
+            "DependsOn": "CreateUserInDb"
+        },
+        "MobileUserPoolClient": {
+            "Type": "AWS::Cognito::UserPoolClient",
+            "Properties": {
+                "ClientName": {
+                    "Fn::Sub": "${AuthName}-mobile-client"
+                },
+                "GenerateSecret": true,
+                "AllowedOAuthFlows": [
+                    "code"
+                ],
+                "AllowedOAuthScopes": [
+                    "email",
+                    "openid",
+                    "profile"
+                ],
+                "AllowedOAuthFlowsUserPoolClient": true,
+                "CallbackURLs": [
+                    {
+                        "Ref": "CallbackURL"
+                    }
+                ],
+                "ExplicitAuthFlows": [
+                    "ALLOW_ADMIN_USER_PASSWORD_AUTH",
+                    "ALLOW_CUSTOM_AUTH",
+                    "ALLOW_USER_PASSWORD_AUTH",
+                    "ALLOW_USER_SRP_AUTH",
+                    "ALLOW_REFRESH_TOKEN_AUTH"
+                ],
+                "SupportedIdentityProviders": [
+                    "COGNITO"
+                ],
+                "UserPoolId": {
+                    "Ref": "UserPool"
+                }
+            },
+            "DependsOn": "UserPool"
+        },
+        "AdminPanelUserPoolClient": {
+            "Type": "AWS::Cognito::UserPoolClient",
+            "Properties": {
+                "ClientName": {
+                    "Fn::Sub": "${AuthName}-admin-panel-client"
+                },
+                "GenerateSecret": false,
+                "AllowedOAuthFlows": [
+                    "code"
+                ],
+                "AllowedOAuthScopes": [
+                    "email",
+                    "openid",
+                    "profile"
+                ],
+                "AllowedOAuthFlowsUserPoolClient": true,
+                "CallbackURLs": [
+                    {
+                        "Ref": "CallbackURL"
+                    }
+                ],
+                "ExplicitAuthFlows": [
+                    "ALLOW_ADMIN_USER_PASSWORD_AUTH",
+                    "ALLOW_CUSTOM_AUTH",
+                    "ALLOW_USER_PASSWORD_AUTH",
+                    "ALLOW_USER_SRP_AUTH",
+                    "ALLOW_REFRESH_TOKEN_AUTH"
+                ],
+                "SupportedIdentityProviders": [
+                    "COGNITO"
+                ],
+                "UserPoolId": {
+                    "Ref": "UserPool"
+                }
+            },
+            "DependsOn": "UserPool"
+        },
+        "UserPoolDomain": {
+            "Type": "AWS::Cognito::UserPoolDomain",
+            "Properties": {
+                "CustomDomainConfig": {
+                    "CertificateArn": { "Ref" : "HostedUiCertificateArn" }
+                },
+                "Domain": {
+                    "Ref": "HostedUiDomain"
+                },
+                "UserPoolId": {
+                    "Ref": "UserPool"
+                }
+            },
+            "DependsOn": "UserPool"
+        },
+        "IdentityPoolForMobile": {
+            "Type": "AWS::Cognito::IdentityPool",
+            "Properties": {
+                "IdentityPoolName": {
+                    "Fn::Sub": "${AuthName}-mobile-dentity-pool"
+                },
+                "AllowUnauthenticatedIdentities": true,
+                "CognitoIdentityProviders": [
+                    {
+                        "ClientId": {
+                            "Ref": "MobileUserPoolClient"
+                        },
+                        "ProviderName": {
+                            "Fn::GetAtt": [
+                                "UserPool",
+                                "ProviderName"
+                            ]
+                        }
+                    }
+                ]
+            },
+            "DependsOn": "UserPool"
+        },
+        "IdentityPoolForAdminPanel": {
+            "Type": "AWS::Cognito::IdentityPool",
+            "Properties": {
+                "IdentityPoolName": {
+                    "Fn::Sub": "${AuthName}-admin-panel-dentity-pool"
+                },
+                "AllowUnauthenticatedIdentities": true,
+                "CognitoIdentityProviders": [
+                    {
+                        "ClientId": {
+                            "Ref": "AdminPanelUserPoolClient"
+                        },
+                        "ProviderName": {
+                            "Fn::GetAtt": [
+                                "UserPool",
+                                "ProviderName"
+                            ]
+                        }
+                    }
+                ]
+            },
+            "DependsOn": "UserPool"
+        },
+        "CognitoAuthorizedRoleForMobile": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Federated": "cognito-identity.amazonaws.com"
+                            },
+                            "Action": [
+                                "sts:AssumeRoleWithWebIdentity"
+                            ],
+                            "Condition": {
+                                "StringEquals": {
+                                    "cognito-identity.amazonaws.com:aud": {
+                                        "Ref": "IdentityPoolForMobile"
+                                    }
+                                },
+                                "ForAnyValue:StringLike": {
+                                    "cognito-identity.amazonaws.com:amr": "authenticated"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "Policies": [
+                    {
+                        "PolicyName": "CognitoAuthorizedPolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "iot:AcceptCertificateTransfer",
+                                        "iot:AddThingToThingGroup",
+                                        "iot:AssociateTargetsWithJob",
+                                        "iot:AttachPolicy",
+                                        "iot:AttachPrincipalPolicy",
+                                        "iot:AttachThingPrincipal",
+                                        "iot:CancelCertificateTransfer",
+                                        "iot:CancelJob",
+                                        "iot:CancelJobExecution",
+                                        "iot:ClearDefaultAuthorizer",
+                                        "iot:CreateAuthorizer",
+                                        "iot:CreateCertificateFromCsr",
+                                        "iot:CreateJob",
+                                        "iot:CreateKeysAndCertificate",
+                                        "iot:CreateOTAUpdate",
+                                        "iot:CreatePolicy",
+                                        "iot:CreatePolicyVersion",
+                                        "iot:CreateRoleAlias",
+                                        "iot:CreateStream",
+                                        "iot:CreateThing",
+                                        "iot:CreateThingGroup",
+                                        "iot:CreateThingType",
+                                        "iot:CreateTopicRule",
+                                        "iot:DeleteAuthorizer",
+                                        "iot:DeleteCACertificate",
+                                        "iot:DeleteCertificate",
+                                        "iot:DeleteJob",
+                                        "iot:DeleteJobExecution",
+                                        "iot:DeleteOTAUpdate",
+                                        "iot:DeletePolicy",
+                                        "iot:DeletePolicyVersion",
+                                        "iot:DeleteRegistrationCode",
+                                        "iot:DeleteRoleAlias",
+                                        "iot:DeleteStream",
+                                        "iot:DeleteThing",
+                                        "iot:DeleteThingGroup",
+                                        "iot:DeleteThingType",
+                                        "iot:DeleteTopicRule",
+                                        "iot:DeleteV2LoggingLevel",
+                                        "iot:DeprecateThingType",
+                                        "iot:DescribeAuthorizer",
+                                        "iot:DescribeCACertificate",
+                                        "iot:DescribeCertificate",
+                                        "iot:DescribeDefaultAuthorizer",
+                                        "iot:DescribeEndpoint",
+                                        "iot:DescribeEventConfigurations",
+                                        "iot:DescribeIndex",
+                                        "iot:DescribeJob",
+                                        "iot:DescribeJobExecution",
+                                        "iot:DescribeRoleAlias",
+                                        "iot:DescribeStream",
+                                        "iot:DescribeThing",
+                                        "iot:DescribeThingGroup",
+                                        "iot:DescribeThingRegistrationTask",
+                                        "iot:DescribeThingType",
+                                        "iot:DetachPolicy",
+                                        "iot:DetachPrincipalPolicy",
+                                        "iot:DetachThingPrincipal",
+                                        "iot:DisableTopicRule",
+                                        "iot:EnableTopicRule",
+                                        "iot:GetEffectivePolicies",
+                                        "iot:GetIndexingConfiguration",
+                                        "iot:GetJobDocument",
+                                        "iot:GetLoggingOptions",
+                                        "iot:GetOTAUpdate",
+                                        "iot:GetPolicy",
+                                        "iot:GetPolicyVersion",
+                                        "iot:GetRegistrationCode",
+                                        "iot:GetTopicRule",
+                                        "iot:GetV2LoggingOptions",
+                                        "iot:ListAttachedPolicies",
+                                        "iot:ListAuthorizers",
+                                        "iot:ListCACertificates",
+                                        "iot:ListCertificates",
+                                        "iot:ListCertificatesByCA",
+                                        "iot:ListIndices",
+                                        "iot:ListJobExecutionsForJob",
+                                        "iot:ListJobExecutionsForThing",
+                                        "iot:ListJobs",
+                                        "iot:ListOTAUpdates",
+                                        "iot:ListOutgoingCertificates",
+                                        "iot:ListPolicies",
+                                        "iot:ListPolicyPrincipals",
+                                        "iot:ListPolicyVersions",
+                                        "iot:ListPrincipalPolicies",
+                                        "iot:ListPrincipalThings",
+                                        "iot:ListRoleAliases",
+                                        "iot:ListStreams",
+                                        "iot:ListTargetsForPolicy",
+                                        "iot:ListThingGroups",
+                                        "iot:ListThingGroupsForThing",
+                                        "iot:ListThingPrincipals",
+                                        "iot:ListThingRegistrationTaskReports",
+                                        "iot:ListThingRegistrationTasks",
+                                        "iot:ListThings",
+                                        "iot:ListThingsInThingGroup",
+                                        "iot:ListThingTypes",
+                                        "iot:ListTopicRules",
+                                        "iot:ListV2LoggingLevels",
+                                        "iot:RegisterCACertificate",
+                                        "iot:RegisterCertificate",
+                                        "iot:RegisterThing",
+                                        "iot:RejectCertificateTransfer",
+                                        "iot:RemoveThingFromThingGroup",
+                                        "iot:ReplaceTopicRule",
+                                        "iot:SearchIndex",
+                                        "iot:SetDefaultAuthorizer",
+                                        "iot:SetDefaultPolicyVersion",
+                                        "iot:SetLoggingOptions",
+                                        "iot:SetV2LoggingLevel",
+                                        "iot:SetV2LoggingOptions",
+                                        "iot:StartThingRegistrationTask",
+                                        "iot:StopThingRegistrationTask",
+                                        "iot:TestAuthorization",
+                                        "iot:TestInvokeAuthorizer",
+                                        "iot:TransferCertificate",
+                                        "iot:UpdateAuthorizer",
+                                        "iot:UpdateCACertificate",
+                                        "iot:UpdateCertificate",
+                                        "iot:UpdateEventConfigurations",
+                                        "iot:UpdateIndexingConfiguration",
+                                        "iot:UpdateRoleAlias",
+                                        "iot:UpdateStream",
+                                        "iot:UpdateThing",
+                                        "iot:UpdateThingGroup",
+                                        "iot:UpdateThingGroupsForThing",
+                                        "iot:UpdateAccountAuditConfiguration",
+                                        "iot:DescribeAccountAuditConfiguration",
+                                        "iot:DeleteAccountAuditConfiguration",
+                                        "iot:StartOnDemandAuditTask",
+                                        "iot:CancelAuditTask",
+                                        "iot:DescribeAuditTask",
+                                        "iot:ListAuditTasks",
+                                        "iot:CreateScheduledAudit",
+                                        "iot:UpdateScheduledAudit",
+                                        "iot:DeleteScheduledAudit",
+                                        "iot:DescribeScheduledAudit",
+                                        "iot:ListScheduledAudits",
+                                        "iot:ListAuditFindings",
+                                        "iot:CreateSecurityProfile",
+                                        "iot:DescribeSecurityProfile",
+                                        "iot:UpdateSecurityProfile",
+                                        "iot:DeleteSecurityProfile",
+                                        "iot:AttachSecurityProfile",
+                                        "iot:DetachSecurityProfile",
+                                        "iot:ListSecurityProfiles",
+                                        "iot:ListSecurityProfilesForTarget",
+                                        "iot:ListTargetsForSecurityProfile",
+                                        "iot:ListActiveViolations",
+                                        "iot:ListViolationEvents",
+                                        "iot:ValidateSecurityProfileBehaviors"
+                                    ],
+                                    "Resource": "*"
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "iot:Connect",
+                                        "iot:Publish",
+                                        "iot:Subscribe",
+                                        "iot:Receive",
+                                        "iot:GetThingShadow",
+                                        "iot:UpdateThingShadow",
+                                        "iot:DeleteThingShadow"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "DependsOn": "IdentityPoolForMobile"
+        },
+        "CognitoUnAuthorizedRoleForMobile": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Federated": "cognito-identity.amazonaws.com"
+                            },
+                            "Action": [
+                                "sts:AssumeRoleWithWebIdentity"
+                            ],
+                            "Condition": {
+                                "StringEquals": {
+                                    "cognito-identity.amazonaws.com:aud": {
+                                        "Ref": "IdentityPoolForMobile"
+                                    }
+                                },
+                                "ForAnyValue:StringLike": {
+                                    "cognito-identity.amazonaws.com:amr": "unauthenticated"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "Policies": [
+                    {
+                        "PolicyName": "CognitoUnauthorizedPolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "mobileanalytics:PutEvents",
+                                        "cognito-sync:*"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "DependsOn": "IdentityPoolForMobile"
+        },
+        "CognitoAuthorizedRoleForAdminPanel": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Federated": "cognito-identity.amazonaws.com"
+                            },
+                            "Action": [
+                                "sts:AssumeRoleWithWebIdentity"
+                            ],
+                            "Condition": {
+                                "StringEquals": {
+                                    "cognito-identity.amazonaws.com:aud": {
+                                        "Ref": "IdentityPoolForAdminPanel"
+                                    }
+                                },
+                                "ForAnyValue:StringLike": {
+                                    "cognito-identity.amazonaws.com:amr": "authenticated"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "Policies": [
+                    {
+                        "PolicyName": "CognitoAuthorizedPolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "ses:*"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "DependsOn": "IdentityPoolForAdminPanel"
+        },
+        "CognitoUnAuthorizedRoleForAdminPanel": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Federated": "cognito-identity.amazonaws.com"
+                            },
+                            "Action": [
+                                "sts:AssumeRoleWithWebIdentity"
+                            ],
+                            "Condition": {
+                                "StringEquals": {
+                                    "cognito-identity.amazonaws.com:aud": {
+                                        "Ref": "IdentityPoolForAdminPanel"
+                                    }
+                                },
+                                "ForAnyValue:StringLike": {
+                                    "cognito-identity.amazonaws.com:amr": "unauthenticated"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "Policies": [
+                    {
+                        "PolicyName": "CognitoUnauthorizedPolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "mobileanalytics:PutEvents",
+                                        "cognito-sync:*"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "DependsOn": "IdentityPoolForAdminPanel"
+        },
+        "IdentityPoolForMobileRoleMapping": {
+            "Type": "AWS::Cognito::IdentityPoolRoleAttachment",
+            "Properties": {
+                "IdentityPoolId": {
+                    "Ref": "IdentityPoolForMobile"
+                },
+                "Roles": {
+                    "authenticated": {
+                        "Fn::GetAtt": [
+                            "CognitoAuthorizedRoleForMobile",
+                            "Arn"
+                        ]
+                    },
+                    "unauthenticated": {
+                        "Fn::GetAtt": [
+                            "CognitoUnAuthorizedRoleForMobile",
+                            "Arn"
+                        ]
+                    }
+                }
+            },
+            "DependsOn": [
+                "CognitoAuthorizedRoleForMobile",
+                "CognitoUnAuthorizedRoleForMobile",
+                "IdentityPoolForMobile"
+            ]
+        },
+        "IdentityPoolForAdminPanelRoleMapping": {
+            "Type": "AWS::Cognito::IdentityPoolRoleAttachment",
+            "Properties": {
+                "IdentityPoolId": {
+                    "Ref": "IdentityPoolForAdminPanel"
+                },
+                "Roles": {
+                    "authenticated": {
+                        "Fn::GetAtt": [
+                            "CognitoAuthorizedRoleForAdminPanel",
+                            "Arn"
+                        ]
+                    },
+                    "unauthenticated": {
+                        "Fn::GetAtt": [
+                            "CognitoUnAuthorizedRoleForAdminPanel",
+                            "Arn"
+                        ]
+                    }
+                }
+            },
+            "DependsOn": [
+                "CognitoAuthorizedRoleForAdminPanel",
+                "CognitoUnAuthorizedRoleForAdminPanel",
+                "IdentityPoolForAdminPanel"
+            ]
+        },
+        "CreateUserInDbLambdaRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "lambda.amazonaws.com"
+                            },
+                            "Action": "sts:AssumeRole"
+                        }
+                    ]
+                },
+                "Path": "/service-role/",
+                "Policies": [
+                    {
+                        "PolicyName": "CreateUserInDbLambdaRolePolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Sid": "VisualEditor0",
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "rds:DescribeDBProxyTargetGroups",
+                                        "ec2:DescribeInstances",
+                                        "ec2:GetEbsEncryptionByDefault",
+                                        "rds:DescribeGlobalClusters",
+                                        "xray:CreateGroup",
+                                        "ec2:DescribeSnapshots",
+                                        "xray:GetGroup",
+                                        "ec2:DescribeHostReservationOfferings",
+                                        "xray:PutTraceSegments",
+                                        "ec2:DescribeTrafficMirrorSessions",
+                                        "ec2:DescribeExportImageTasks",
+                                        "rds:DescribeDBProxyTargets",
+                                        "ec2:DescribeTrafficMirrorFilters",
+                                        "ec2:DescribeVolumeStatus",
+                                        "ec2:DescribeScheduledInstanceAvailability",
+                                        "ec2:DescribeVolumes",
+                                        "rds:DownloadDBLogFilePortion",
+                                        "ec2:GetEbsDefaultKmsKeyId",
+                                        "ec2:DescribeFpgaImageAttribute",
+                                        "rds:DescribeSourceRegions",
+                                        "ec2:DescribeExportTasks",
+                                        "ec2:DescribeKeyPairs",
+                                        "ec2:DescribeReservedInstancesListings",
+                                        "ec2:DescribeCapacityReservations",
+                                        "ec2:DescribeClientVpnRoutes",
+                                        "ec2:DescribeSpotFleetRequestHistory",
+                                        "xray:GetServiceGraph",
+                                        "ec2:DescribeVpcClassicLinkDnsSupport",
+                                        "ec2:DescribeSnapshotAttribute",
+                                        "ec2:DescribeIdFormat",
+                                        "xray:DeleteGroup",
+                                        "ec2:DescribeFastSnapshotRestores",
+                                        "ec2:DescribeVolumeAttribute",
+                                        "ec2:DescribeImportSnapshotTasks",
+                                        "rds:DescribeReservedDBInstances",
+                                        "ec2:GetPasswordData",
+                                        "ec2:DescribeVpcEndpointServicePermissions",
+                                        "ec2:DescribeTransitGatewayAttachments",
+                                        "ec2:DescribeScheduledInstances",
+                                        "ec2:DescribeImageAttribute",
+                                        "ec2:DescribeFleets",
+                                        "ec2:DescribeReservedInstancesModifications",
+                                        "ec2:DescribeSubnets",
+                                        "secretsmanager:ListSecrets",
+                                        "ec2:DescribeMovingAddresses",
+                                        "ec2:DescribeFleetHistory",
+                                        "xray:PutTelemetryRecords",
+                                        "ec2:DescribePrincipalIdFormat",
+                                        "ec2:DescribeFlowLogs",
+                                        "ec2:DescribeRegions",
+                                        "ec2:DescribeTransitGateways",
+                                        "ec2:DescribeVpcEndpointServices",
+                                        "ec2:DescribeSpotInstanceRequests",
+                                        "rds:DescribeDBClusterBacktracks",
+                                        "ec2:DescribeVpcAttribute",
+                                        "rds:DescribeReservedDBInstancesOfferings",
+                                        "ec2:ExportClientVpnClientCertificateRevocationList",
+                                        "secretsmanager:GetSecretValue",
+                                        "ec2:DescribeTrafficMirrorTargets",
+                                        "ec2:DescribeTransitGatewayRouteTables",
+                                        "ec2:DescribeAvailabilityZones",
+                                        "ec2:DescribeNetworkInterfaceAttribute",
+                                        "rds:DescribeDBInstances",
+                                        "rds:DescribeEngineDefaultClusterParameters",
+                                        "rds:DescribeDBProxies",
+                                        "ec2:DescribeVpcEndpointConnections",
+                                        "rds:DescribeEventCategories",
+                                        "xray:GetTraceSummaries",
+                                        "ec2:DescribeInstanceStatus",
+                                        "rds:DescribeEvents",
+                                        "ec2:DescribeHostReservations",
+                                        "ec2:DescribeBundleTasks",
+                                        "ec2:DescribeIdentityIdFormat",
+                                        "ec2:DescribeClassicLinkInstances",
+                                        "ec2:DescribeVpcEndpointConnectionNotifications",
+                                        "ec2:DescribeSecurityGroups",
+                                        "rds:DescribeDBSnapshotAttributes",
+                                        "ec2:DescribeFpgaImages",
+                                        "secretsmanager:GetResourcePolicy",
+                                        "rds:ListTagsForResource",
+                                        "ec2:DescribeVpcs",
+                                        "xray:UpdateGroup",
+                                        "xray:CreateSamplingRule",
+                                        "ec2:DescribeStaleSecurityGroups",
+                                        "xray:UpdateSamplingRule",
+                                        "rds:DescribeDBInstanceAutomatedBackups",
+                                        "ec2:DescribeAggregateIdFormat",
+                                        "secretsmanager:DescribeSecret",
+                                        "ec2:ExportClientVpnClientConfiguration",
+                                        "ec2:DescribeVolumesModifications",
+                                        "ec2:GetHostReservationPurchasePreview",
+                                        "ec2:DescribeClientVpnConnections",
+                                        "rds:DescribeEngineDefaultParameters",
+                                        "ec2:DescribeByoipCidrs",
+                                        "xray:GetSamplingTargets",
+                                        "ec2:GetConsoleScreenshot",
+                                        "ec2:DescribePlacementGroups",
+                                        "ec2:DescribeInternetGateways",
+                                        "secretsmanager:GetRandomPassword",
+                                        "ec2:SearchTransitGatewayRoutes",
+                                        "ec2:GetLaunchTemplateData",
+                                        "ec2:DescribeSpotDatafeedSubscription",
+                                        "ec2:DescribeAccountAttributes",
+                                        "ec2:DescribeNetworkInterfacePermissions",
+                                        "ec2:DescribeReservedInstances",
+                                        "ec2:DescribeNetworkAcls",
+                                        "ec2:DescribeRouteTables",
+                                        "ec2:DescribeClientVpnEndpoints",
+                                        "ec2:DescribeEgressOnlyInternetGateways",
+                                        "xray:GetTraceGraph",
+                                        "ec2:DescribeLaunchTemplates",
+                                        "rds:DescribeDBSnapshots",
+                                        "ec2:DescribeVpnConnections",
+                                        "ec2:DescribeVpcPeeringConnections",
+                                        "ec2:DescribeReservedInstancesOfferings",
+                                        "ec2:GetTransitGatewayAttachmentPropagations",
+                                        "ec2:DescribeFleetInstances",
+                                        "ec2:DescribeClientVpnTargetNetworks",
+                                        "ec2:DescribeVpcEndpointServiceConfigurations",
+                                        "rds:DescribeDBSecurityGroups",
+                                        "ec2:DescribePrefixLists",
+                                        "ec2:GetReservedInstancesExchangeQuote",
+                                        "ec2:DescribeInstanceCreditSpecifications",
+                                        "ec2:DescribeVpcClassicLink",
+                                        "xray:GetTimeSeriesServiceStatistics",
+                                        "rds:DescribeValidDBInstanceModifications",
+                                        "ec2:GetTransitGatewayRouteTablePropagations",
+                                        "xray:GetSamplingRules",
+                                        "ec2:DescribeInstanceTypes",
+                                        "rds:DescribeOrderableDBInstanceOptions",
+                                        "ec2:DescribeVpcEndpoints",
+                                        "ec2:DescribeElasticGpus",
+                                        "rds:DescribeCertificates",
+                                        "ec2:DescribeVpnGateways",
+                                        "rds:DescribeOptionGroups",
+                                        "xray:GetGroups",
+                                        "ec2:DescribeAddresses",
+                                        "rds:DescribeDBEngineVersions",
+                                        "rds:DescribeDBSubnetGroups",
+                                        "ec2:DescribeInstanceAttribute",
+                                        "rds:DescribeExportTasks",
+                                        "ec2:GetCapacityReservationUsage",
+                                        "ec2:DescribeDhcpOptions",
+                                        "rds:DescribePendingMaintenanceActions",
+                                        "rds:DescribeDBParameterGroups",
+                                        "secretsmanager:ListSecretVersionIds",
+                                        "ec2:GetConsoleOutput",
+                                        "ec2:DescribeSpotPriceHistory",
+                                        "ec2:DescribeNetworkInterfaces",
+                                        "rds:DescribeDBParameters",
+                                        "ec2:GetTransitGatewayRouteTableAssociations",
+                                        "rds:DescribeDBClusterSnapshotAttributes",
+                                        "rds:DescribeDBClusterParameters",
+                                        "xray:GetSamplingStatisticSummaries",
+                                        "xray:DeleteSamplingRule",
+                                        "rds:DescribeEventSubscriptions",
+                                        "ec2:DescribeIamInstanceProfileAssociations",
+                                        "ec2:DescribeTags",
+                                        "ec2:DescribeLaunchTemplateVersions",
+                                        "ec2:DescribeImportImageTasks",
+                                        "rds:DescribeDBLogFiles",
+                                        "ec2:DescribeNatGateways",
+                                        "ec2:DescribeCustomerGateways",
+                                        "ec2:DescribeSpotFleetRequests",
+                                        "xray:BatchGetTraces",
+                                        "ec2:DescribeHosts",
+                                        "ec2:DescribeImages",
+                                        "ec2:DescribeSpotFleetInstances",
+                                        "ec2:DescribeSecurityGroupReferences",
+                                        "ec2:DescribePublicIpv4Pools",
+                                        "ec2:DescribeClientVpnAuthorizationRules",
+                                        "rds:DescribeDBClusterSnapshots",
+                                        "rds:DescribeOptionGroupOptions",
+                                        "rds:DownloadCompleteDBLogFile",
+                                        "rds:DescribeDBClusterEndpoints",
+                                        "ec2:DescribeTransitGatewayVpcAttachments",
+                                        "ec2:DescribeConversionTasks",
+                                        "rds:DescribeDBClusters",
+                                        "rds:DescribeAccountAttributes",
+                                        "rds:DescribeDBClusterParameterGroups"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "CreateUserInDb": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "Handler": "handler.insert",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "CreateUserInDbLambdaRole",
+                        "Arn"
+                    ]
+                },
+                "Code": {
+                    "S3Bucket": "cognito-lambda-functions",
+                    "S3Key": "serverless-nodejs-cognito-trigger-app.zip"
+                },
+                "Runtime": "nodejs12.x",
+                "Timeout": 25,
+                "TracingConfig": {
+                    "Mode": "Active"
+                }
+            },
+            "DependsOn": "CreateUserInDbLambdaRole"
+        }
+    },
+    "Outputs": {
+        "UserPoolId": {
+            "Value": {
+                "Ref": "UserPool"
+            },
+            "Export": {
+                "Name": "UserPool::Id"
+            }
+        },
+        "UserPoolClientId": {
+            "Value": {
+                "Ref": "MobileUserPoolClient"
+            },
+            "Export": {
+                "Name": "MobileUserPoolClient::Id"
+            }
+        },
+        "IdentityPoolForAdminPanelId": {
+            "Value": {
+                "Ref": "IdentityPoolForAdminPanel"
+            },
+            "Export": {
+                "Name": "IdentityPoolForAdminPanel::Id"
+            }
+        },
+        "IdentityPoolForMobileId": {
+            "Value": {
+                "Ref": "IdentityPoolForMobile"
+            },
+            "Export": {
+                "Name": "IdentityPoolForMobile::Id"
+            }
+        },
+        "UserPoolDomain": {
+            "Value": {
+                "Ref": "UserPoolDomain"
+            },
+            "Export": {
+                "Name": "UserPoolDomain::domain"
+            }
+        }
+    }
+}
